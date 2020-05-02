@@ -19,6 +19,7 @@ namespace GoogleTablesDBInfoLog
     {
         private readonly IConfiguration config;
         public string FileID { get; set; }
+        private string[] defaultListNames = {"Лист1"};
         
         public GoogleDriveSpreadSheetAPI(IConfiguration config)
         {
@@ -68,8 +69,8 @@ namespace GoogleTablesDBInfoLog
                 FilesResource.CreateRequest request = service.Files.Create(fileMetadata);
                 request.Fields = "id"; 
                 file = request.Execute();
-                Console.WriteLine($"Документ с именем {fileName} создан");
-                Console.WriteLine($"ID созданного документа: {file.Id}");
+                Console.WriteLine($"Document {fileName} created");
+                Console.WriteLine($"ID of created document: {file.Id}");
                 FileID = file.Id;
             }
             else
@@ -82,8 +83,8 @@ namespace GoogleTablesDBInfoLog
             
             return file;  
         }
-
-        public void WriteDataToGoogleTableSheets(string [] dataBaseInfo)
+        
+        public void WriteDataToGoogleTableSheets(List<DbInfo> dbInfoList, int workInHours, int currentHour)
         {
             var clientId = config.GetValue<string>("GoogleDrive:ClientId");
             var clientSecret = config.GetValue<string>("GoogleDrive:ClientSecret");
@@ -109,27 +110,66 @@ namespace GoogleTablesDBInfoLog
                 ApplicationName = "GoogleTablesDBInfoLog",
             });
 
-            var dataBaseServer = dataBaseInfo[0];
-            var dataBaseName = dataBaseInfo[1];
-            var dataBaseSize = dataBaseInfo[2];
-            var date = dataBaseInfo[3];
-            
-            var range = $"{dataBaseName}!A:D";
-            var valueRange = new ValueRange();
+            string serverName, server, dataBaseName;
+            double dataBaseSize, freeSpace;
+            string date;
 
-            var objectList = new List<object>()
+            foreach (var item in dbInfoList)
             {
-               dataBaseServer,
-               dataBaseName,
-               dataBaseSize,
-               date
-            };
-            
-            valueRange.Values = new List<IList<object>> {objectList};
+                server = item.Server;
+                serverName = item.ServerName;
+                dataBaseName = item.DataBaseName;
+                dataBaseSize = item.DataBaseSize;
+                date = item.Date;
+                freeSpace = item.DiskSize - item.DataBaseSize;
+                
+                var range = $"{server}!A:D";
+                var headerRange = $"{server}!A1:D1";
+                var totalRange = $"{server}!A:D"; 
+                
+                var valueRange = new ValueRange();
+                var headerValueRange = new ValueRange();
+                var totalValueRange = new ValueRange();
+                
+                var objectList = new List<object>()
+                {
+                    server,
+                    dataBaseName,
+                    dataBaseSize,
+                    date
+                };
+                
+                var headerList = new List<object>()
+                {
+                    "Сервер", "База данных", "Размер в ГБ", "Дата обновления"
+                };
+                
+                var totalList = new List<object>()
+                {
+                    server, "Свободно", freeSpace, date
+                };
+                
+                headerValueRange.Values = new List<IList<object>> {headerList};
+                
+                var request = service.Spreadsheets.Values.Update(headerValueRange, FileID, headerRange);
+                request.ValueInputOption = SpreadsheetsResource.ValuesResource.UpdateRequest.ValueInputOptionEnum.USERENTERED;
+                request.Execute();
+                
+                valueRange.Values = new List<IList<object>> {objectList};
 
-            var appendRequest = service.Spreadsheets.Values.Append(valueRange, FileID, range);
-            appendRequest.ValueInputOption = SpreadsheetsResource.ValuesResource.AppendRequest.ValueInputOptionEnum.USERENTERED;
-            appendRequest.Execute();
+                var appendRequest = service.Spreadsheets.Values.Append(valueRange, FileID, range);
+                appendRequest.ValueInputOption = SpreadsheetsResource.ValuesResource.AppendRequest.ValueInputOptionEnum.USERENTERED;
+                appendRequest.Execute();
+
+                if (currentHour == workInHours)
+                {
+                    totalValueRange.Values = new List<IList<object>> {totalList};
+                
+                    var _request = service.Spreadsheets.Values.Append(totalValueRange, FileID, totalRange);
+                    _request.ValueInputOption = SpreadsheetsResource.ValuesResource.AppendRequest.ValueInputOptionEnum.USERENTERED;
+                    _request.Execute();
+                }
+            }
         }
 
         public void DeleteGoogleTableSheet()
@@ -167,28 +207,31 @@ namespace GoogleTablesDBInfoLog
                 sheetList.Add(sheet.Properties.Title);
             }
 
-            if (sheetList.Contains("Лист1"))
+            foreach (var listName in defaultListNames)
             {
-                var deleteSheetRequest = new DeleteSheetRequest {SheetId = 0};
-
-                BatchUpdateSpreadsheetRequest batchUpdateSpreadsheetRequest =
-                    new BatchUpdateSpreadsheetRequest {Requests = new List<Request>()};
-
-                service.Spreadsheets.BatchUpdate(batchUpdateSpreadsheetRequest, FileID);
-
-                batchUpdateSpreadsheetRequest.Requests.Add(new Request
+                if (sheetList.Contains(listName))
                 {
-                    DeleteSheet = deleteSheetRequest,
-                });
+                    var deleteSheetRequest = new DeleteSheetRequest {SheetId = 0};
 
-                var batchUpdateRequest =
+                    BatchUpdateSpreadsheetRequest batchUpdateSpreadsheetRequest =
+                        new BatchUpdateSpreadsheetRequest {Requests = new List<Request>()};
+
                     service.Spreadsheets.BatchUpdate(batchUpdateSpreadsheetRequest, FileID);
 
-                batchUpdateRequest.Execute();
+                    batchUpdateSpreadsheetRequest.Requests.Add(new Request
+                    {
+                        DeleteSheet = deleteSheetRequest,
+                    });
+
+                    var batchUpdateRequest =
+                        service.Spreadsheets.BatchUpdate(batchUpdateSpreadsheetRequest, FileID);
+
+                    batchUpdateRequest.Execute();
+                }
             }
         }
         
-        public void CreateGoogleTableSheet(List<string> dataBaseNameList)
+        public void CreateGoogleTableSheet(List<DbInfo> dataBaseNameList)
         {
             var clientId = config.GetValue<string>("GoogleDrive:ClientId");
             var clientSecret = config.GetValue<string>("GoogleDrive:ClientSecret");
@@ -226,12 +269,12 @@ namespace GoogleTablesDBInfoLog
 
                 foreach (var item in dataBaseNameList)
                 {
-                    if (sheetList.Contains(item))
+                    if (sheetList.Contains(item.Server))
                     {
                         continue;
                     }
                     
-                    string sheetName = $"{item}";
+                    string sheetName = $"{item.Server}";
                     var addSheetRequest = new AddSheetRequest();
                     addSheetRequest.Properties = new SheetProperties();
                     addSheetRequest.Properties.Title = sheetName;

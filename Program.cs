@@ -14,11 +14,9 @@ namespace GoogleTablesDBInfoLog
 {
     class Program
     {
-        private static IConfigurationRoot configuration;
-        public static List<string> connectionStringsList;
-        public static List<string> dataBaseNameList;
-        public static List<string> dataBaseInfoList;
-
+        private static IConfiguration configuration;
+        public static List<DbInfo> dbInfoList;
+        
          static int Main(string[] args)
         {
             try
@@ -36,45 +34,44 @@ namespace GoogleTablesDBInfoLog
         {
             Task task = new Task(() =>
             {
+                ServiceCollection serviceCollection = new ServiceCollection();
+                ConfigureServices(serviceCollection);
+                int currentHour = 0;
+                int workInHours = 8;
+
                 while (true)
                 {
-                    ServiceCollection serviceCollection = new ServiceCollection();
-                    ConfigureServices(serviceCollection);
-            
-                    var connectionStrings = configuration.GetSection("ConnectionStrings").GetChildren().AsEnumerable();
-
-                    connectionStringsList = new List<string>();
-
-                    foreach (var item in connectionStrings)
+                    var servers = configuration.GetSection("Servers").GetChildren().AsEnumerable();
+                    dbInfoList = new List<DbInfo>();
+                    foreach (var item in servers)
                     {
-                        connectionStringsList.Add(item.Value);
-                    }
-            
-                    dataBaseNameList = new List<string>();
-                    dataBaseInfoList = new List<string>();
-            
-                    try
-                    {
-                        GoogleDriveSpreadSheetAPI spreadSheetApi = new GoogleDriveSpreadSheetAPI(configuration);
-                        SQLQuery(dataBaseNameList, dataBaseInfoList);
-                        spreadSheetApi.CreateGoogleTableDoc();
-                        spreadSheetApi.CreateGoogleTableSheet(dataBaseNameList);
-                        spreadSheetApi.DeleteGoogleTableSheet();
-
-                        foreach (var item in dataBaseInfoList)
+                        DbInfo dbInfo = new DbInfo
                         {
-                            var items = item.Split(' ');
-                    
-                            spreadSheetApi.WriteDataToGoogleTableSheets(items);
-                        }
-                    }
-                    catch (Exception e)
-                    {
-                        Console.WriteLine(e);
+                            Server = item.Key,
+                            ConnectionString = configuration.GetValue<string>($"Servers:{item.Key}:connectionString"),
+                            DiskSize = configuration.GetValue<double>($"Servers:{item.Key}:diskSize"),
+                            Date = DateTime.UtcNow.ToString("dd.MM.yyyy")
+                        };
+
+                        dbInfoList.Add(dbInfo);
                     }
 
-                    int inSeconds = 3600;
-                    Console.WriteLine($"Обновление документа: {DateTime.Now}");
+                    DbInfoRequester dbInfoRequester = new DbInfoRequester(dbInfoList);
+                    dbInfoRequester.SQLQuery();
+
+                    GoogleDriveSpreadSheetAPI spreadSheetApi = new GoogleDriveSpreadSheetAPI(configuration);
+                    spreadSheetApi.CreateGoogleTableDoc();
+                    spreadSheetApi.CreateGoogleTableSheet(dbInfoList);
+                    spreadSheetApi.DeleteGoogleTableSheet();
+                    spreadSheetApi.WriteDataToGoogleTableSheets(dbInfoList, workInHours, currentHour);
+                    
+                    if (currentHour == workInHours)
+                    {
+                        currentHour = 0;
+                    }
+                    currentHour++;
+                    int inSeconds = 10;
+                    Console.WriteLine($"Updating document: {DateTime.Now}");
                     Thread.Sleep(inSeconds * 1000);
                 }
             });
@@ -90,44 +87,6 @@ namespace GoogleTablesDBInfoLog
                 throw;
             }
         }
-
-        private static void SQLQuery(List<string> dataBaseNameList, List<string> dataBaseInfoList)
-        {
-            try
-            {
-                foreach (var item in connectionStringsList)
-                {
-                    using (var connection = new NpgsqlConnection(item))
-                    {
-                        connection.Open();
-                        string query = @"SELECT boot_val, current_database(), round(pg_database_size(current_database())/1024.0/1024/1024, 3) 
-                                         from pg_settings where name = 'listen_addresses'";
-                        var command = new NpgsqlCommand(query, connection);
-                        NpgsqlDataReader dataReader = command.ExecuteReader();
-
-                        while (dataReader.Read())
-                        {
-                            DbInfo dbInfo = new DbInfo
-                            {
-                                Server = dataReader.GetString(0), 
-                                DataBaseName = dataReader.GetString(1), 
-                                DataBaseSize = dataReader.GetDouble(2),
-                                Date = DateTime.UtcNow.ToString("dd.MM.yyyy")
-                            };
-                            dataBaseNameList.Add(dbInfo.DataBaseName);
-                            dataBaseInfoList.Add(dbInfo.Server + " " + dbInfo.DataBaseName + " " + dbInfo.DataBaseSize + " " + dbInfo.Date);
-                        }
-                    }
-                }
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine(e);
-                throw;
-            }
-            
-        }
-        
         private static void ConfigureServices(IServiceCollection serviceCollection)
         {
             var currentDirectory = Directory.GetCurrentDirectory();
