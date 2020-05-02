@@ -51,9 +51,7 @@ namespace GoogleTablesDBInfoLog
                 ApplicationName = "GoogleTablesDBInfoLog",  
             });  
             
-            var parent = "";//ID of folder if you want to create spreadsheet in specific folder
             var fileName = "DbInfoLog";
-
             FilesResource.ListRequest listRequest = service.Files.List();
             listRequest.Q = $"name='{fileName}' and trashed=false";
             var files = listRequest.Execute();
@@ -68,12 +66,10 @@ namespace GoogleTablesDBInfoLog
                     MimeType = "application/vnd.google-apps.spreadsheet",  
                 };  
                 FilesResource.CreateRequest request = service.Files.Create(fileMetadata);
-             
-                
-//                fileMetadata.Parents = new List<string> { parent }; // Parent folder id or TeamDriveID
                 request.Fields = "id"; 
                 file = request.Execute();
-                Console.WriteLine("File ID: " + file.Id);
+                Console.WriteLine($"Документ с именем {fileName} создан");
+                Console.WriteLine($"ID созданного документа: {file.Id}");
                 FileID = file.Id;
             }
             else
@@ -87,7 +83,7 @@ namespace GoogleTablesDBInfoLog
             return file;  
         }
 
-        public void WriteDataToGoogleTableSheets(string sheetName, string [] dataBaseInfo)
+        public void WriteDataToGoogleTableSheets(string [] dataBaseInfo)
         {
             var clientId = config.GetValue<string>("GoogleDrive:ClientId");
             var clientSecret = config.GetValue<string>("GoogleDrive:ClientSecret");
@@ -173,11 +169,10 @@ namespace GoogleTablesDBInfoLog
 
             if (sheetList.Contains("Лист1"))
             {
-                var deleteSheetRequest = new DeleteSheetRequest();
-                deleteSheetRequest.SheetId = 0;
-            
-                BatchUpdateSpreadsheetRequest batchUpdateSpreadsheetRequest = new BatchUpdateSpreadsheetRequest();
-                batchUpdateSpreadsheetRequest.Requests = new List<Request>();
+                var deleteSheetRequest = new DeleteSheetRequest {SheetId = 0};
+
+                BatchUpdateSpreadsheetRequest batchUpdateSpreadsheetRequest =
+                    new BatchUpdateSpreadsheetRequest {Requests = new List<Request>()};
 
                 service.Spreadsheets.BatchUpdate(batchUpdateSpreadsheetRequest, FileID);
 
