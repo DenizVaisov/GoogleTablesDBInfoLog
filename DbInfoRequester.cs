@@ -6,15 +6,25 @@ using Npgsql;
 
 namespace GoogleTablesDBInfoLog
 {
+    /// <summary>
+    ///  Класс DbInfoRequester
+    /// </summary>
     public class DbInfoRequester
     {
         public static List<DbInfo> dbInfoList;
 
+        /// <summary>
+        ///  Конструктор класса DbInfoRequester
+        /// </summary>
+        /// <param name="_dbInfoList"> Список обобщенный классом DbInfo.</param>
         public DbInfoRequester(List<DbInfo> _dbInfoList)
         {
             dbInfoList = _dbInfoList;
         }
         
+        /// <summary>
+        ///  Используется для получения данных из SQL запроса
+        /// </summary>
         public void SQLQuery()
         {
             try
@@ -43,7 +53,6 @@ namespace GoogleTablesDBInfoLog
                 Console.WriteLine(e);
                 throw;
             }
-            
         }
     }
 }
